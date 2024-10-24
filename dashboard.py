@@ -28,7 +28,7 @@ def normalizza_nome_istituto(nome_istituto):
         'nocera': 'Nocera',
         'castellammare': 'Castellammare',
         'torre annunziata': 'Torre Annunziata',
-        'cava de': 'Cava De\' Tirreni', 'cava'
+        'cava de': 'Cava De\' Tirreni',
         'san giuseppe': 'San Giuseppe',
         'chiaia': 'Chiaia',
         'battipaglia': 'Battipaglia',
