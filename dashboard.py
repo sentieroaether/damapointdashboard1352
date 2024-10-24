@@ -16,6 +16,46 @@ def check_credentials(username, password):
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
+# Funzione per normalizzare i nomi degli istituti
+def normalizza_nome_istituto(nome_istituto):
+    nome_istituto = nome_istituto.lower()  # Trasformiamo tutto in minuscolo per evitare differenze di maiuscole/minuscole
+
+    # Dizionario di mappatura per unire istituti con nomi simili associati a città
+    mappatura_istituti = {
+        'pomigliano': 'Pomigliano',
+        'nola': 'Nola',
+        'vomero': 'Vomero',
+        'nocera': 'Nocera',
+        'castellammare': 'Castellammare',
+        'torre annunziata': 'Torre Annunziata',
+        'cava de': 'Cava De\' Tirreni', 'cava'
+        'san giuseppe': 'San Giuseppe',
+        'chiaia': 'Chiaia',
+        'battipaglia': 'Battipaglia',
+        'portici': 'Portici',
+        'scafati': 'Scafati',
+        'benevento': 'Benevento',
+        'salerno': 'Salerno'
+        # Aggiungi altre città come necessario
+    }
+
+    # Verifichiamo se una delle chiavi del dizionario è presente nel nome dell'istituto
+    for chiave, nome_citta in mappatura_istituti.items():
+        if chiave in nome_istituto:
+            return nome_citta
+
+    # Se non troviamo corrispondenze, restituiamo il nome originale (capitalizzato)
+    return nome_istituto.capitalize()
+
+# Funzione per estrarre e normalizzare il nome dell'istituto
+def pulisci_nome_istituto(nome_istituto):
+    # Prima estraiamo la parte dopo il trattino (se esiste)
+    if '-' in nome_istituto:
+        nome_istituto = nome_istituto.split('-', 1)[1].strip()
+
+    # Normalizziamo il nome utilizzando la funzione di mappatura
+    return normalizza_nome_istituto(nome_istituto)
+
 # Pagina di benvenuto e login
 def welcome_page():
     st.title("Benvenuto in DamaPoint Dashboard")
@@ -32,7 +72,6 @@ def welcome_page():
             st.success("Accesso effettuato con successo!")
         else:
             st.error("Username o password errati!")
-
 
 def dashboard():
     # Configura i dettagli della tua API Airtable
@@ -70,17 +109,9 @@ def dashboard():
 
         return all_records
 
-    # Funzione per estrarre la parte del nome dell'istituto dopo il trattino '-'
-    def pulisci_nome_istituto(nome_istituto):
-        if '-' in nome_istituto:
-            return nome_istituto.split('-', 1)[1].strip()  # Prende solo la parte dopo il trattino
-        return nome_istituto
-
     # Otteniamo tutti i dati
     records = get_all_airtable_data()
 
-    # Verifica se i dati sono stati ottenuti correttamente
-    # Verifica se i dati sono stati ottenuti correttamente
     if records:
         # Fase 2: Elaborazione dei dati
         fields = [record['fields'] for record in records]
@@ -90,16 +121,14 @@ def dashboard():
 
         # Filtriamo i record con appuntamenti fissati e presentati
         appuntamenti_fissati = [record for record in fields if record.get('Esito telefonata') == 'App. Fissato']
-        
-        # Filtriamo i record dove il campo "Presentato/a" è True
         presentati = [record for record in fields if record.get('Presentato/a?')]
 
         # Numero totale di presentati
         num_presentati = len(presentati)
 
         # Somma totale dell'importo pagato
-        importo_totale_pagato = sum(record.get('Importo pagato', 0) for record in fields if 'Importo pagato' in record)
-        totale_appuntamenti_fissati = len(appuntamenti_fissati)
+        importo_totale_pagato = sum(float(record.get('Importo saldo', 0)) for record in fields if 'Importo saldo' in record)
+
         # Estrai gli istituti di origine e puliamo i nomi
         istituti = [pulisci_nome_istituto(record['Istituto di origine']) for record in fields if 'Istituto di origine' in record]
 
@@ -107,14 +136,12 @@ def dashboard():
         leads_per_istituto = Counter(istituti)
         appuntamenti_per_istituto = Counter([pulisci_nome_istituto(record['Istituto di origine']) for record in appuntamenti_fissati if 'Istituto di origine' in record])
         presentati_per_istituto = Counter([pulisci_nome_istituto(record['Istituto di origine']) for record in presentati if 'Istituto di origine' in record])
-        importo_pagato_settimana_scorsa = 8000  # Esempio, sostituiscilo con il valore reale
 
-        
         # Sommiamo l'importo pagato per istituto
         importo_pagato_per_istituto = {}
         for record in fields:
             istituto = pulisci_nome_istituto(record.get('Istituto di origine', ''))
-            importo_pagato = record.get('Importo pagato', 0)
+            importo_pagato = float(record.get('Importo saldo', 0) or 0)  # Gestiamo eventuali valori mancanti con 0
             if istituto:
                 if istituto in importo_pagato_per_istituto:
                     importo_pagato_per_istituto[istituto] += importo_pagato
@@ -129,7 +156,7 @@ def dashboard():
             'Presentati': [presentati_per_istituto.get(istituto, 0) for istituto in leads_per_istituto.keys()],
             'Importo Pagato': [importo_pagato_per_istituto.get(istituto, 0) for istituto in leads_per_istituto.keys()]
         })
-        
+
     else:
         st.warning("Nessun dato disponibile per la dashboard")
         num_leads = 0
@@ -138,93 +165,45 @@ def dashboard():
         df_metrics = pd.DataFrame()
 
     # Sezione laterale (sidebar) per la selezione del tipo di grafico
-    st.sidebar.title("DamaPoint Dashboard | benvenuto!")
+    st.sidebar.title("DamaPoint Dashboard | Benvenuto!")
 
     grafico_tipo = st.sidebar.selectbox(
         "Scegli il tipo di rappresentazione grafica",
         ["Barre", "Linee", "Torta"]
     )
 
-    # Aggiungi CSS per centrare l'immagine nella sidebar
-    st.sidebar.markdown("""
-        <style>
-        .sidebar-image {
-            display: flex;
-            justify-content: center;
-            margin-top: 5px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Percorso dell'immagine (sostituisci con il percorso corretto)
-    image_path = "logo.png"  # Sostituisci con il nome del file immagine nella directory del progetto
-
     # Visualizzazione dell'immagine nella sidebar
     st.sidebar.markdown('<div class="sidebar-image">', unsafe_allow_html=True)
+    image_path = "logo.png"  # Sostituisci con il nome del file immagine nella directory del progetto
     st.sidebar.image(image_path, use_column_width=True)
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
     # Simuliamo i valori della settimana scorsa (questi dovresti ottenerli dai tuoi dati)
-    leads_settimana_scorsa = 1400  # Esempio, sostituisci con il valore reale
-    appuntamenti_fissati_settimana_scorsa = 390  # Esempio, sostituisci con il valore reale
-    presentati_settimana_scorsa = 20  # Esempio, sostituisci con il valore reale
-    importo_pagato_settimana_scorsa = 8000  # Esempio, sostituisci con il valore reale
+    leads_settimana_scorsa = 1400
+    appuntamenti_fissati_settimana_scorsa = 390
+    presentati_settimana_scorsa = 20
+    importo_pagato_settimana_scorsa = 8000
 
     # Calcolo delle variazioni percentuali
-    if leads_settimana_scorsa > 0:
-        variazione_leads = ((num_leads - leads_settimana_scorsa) / leads_settimana_scorsa) * 100
-    else:
-        variazione_leads = 0
+    variazione_leads = ((num_leads - leads_settimana_scorsa) / leads_settimana_scorsa) * 100 if leads_settimana_scorsa > 0 else 0
+    variazione_appuntamenti_fissati = ((len(appuntamenti_fissati) - appuntamenti_fissati_settimana_scorsa) / appuntamenti_fissati_settimana_scorsa) * 100 if appuntamenti_fissati_settimana_scorsa > 0 else 0
+    variazione_presentati = ((num_presentati - presentati_settimana_scorsa) / presentati_settimana_scorsa) * 100 if presentati_settimana_scorsa > 0 else 0
+    variazione_importo_pagato = ((importo_totale_pagato - importo_pagato_settimana_scorsa) / importo_pagato_settimana_scorsa) * 100 if importo_pagato_settimana_scorsa > 0 else 0
 
-    if appuntamenti_fissati_settimana_scorsa > 0:
-        variazione_appuntamenti_fissati = ((totale_appuntamenti_fissati - appuntamenti_fissati_settimana_scorsa) / appuntamenti_fissati_settimana_scorsa) * 100
-    else:
-        variazione_appuntamenti_fissati = 0
-
-    if presentati_settimana_scorsa > 0:
-        variazione_presentati = ((num_presentati - presentati_settimana_scorsa) / presentati_settimana_scorsa) * 100
-    else:
-        variazione_presentati = 0
-
-    if importo_pagato_settimana_scorsa > 0:
-        variazione_importo_pagato = ((importo_totale_pagato - importo_pagato_settimana_scorsa) / importo_pagato_settimana_scorsa) * 100
-    else:
-        variazione_importo_pagato = 0
-
-
-
-    # Fase 3: Creazione della dashboard con Streamlit
+    # Creazione della dashboard con Streamlit
     st.title('Portale Dashboard Leads/Appuntamenti')
 
-    # Crea quattro colonne per visualizzare i dati
     col1, col2, col3, col4 = st.columns(4)
 
-    # Visualizzazione del numero di leads generati con la variazione percentuale nella prima colonna
     with col1:
-        st.subheader('')
         st.metric(label="Totale Leads", value=num_leads, delta=f"{variazione_leads:.2f}%")
-    
-
-    # Visualizzazione del totale appuntamenti fissati con la variazione percentuale nella seconda colonna
     with col2:
-        st.subheader(' ')
-        st.metric(label="Appuntamenti Fissati", value=totale_appuntamenti_fissati, delta=f"{variazione_appuntamenti_fissati:.2f}%")
-
-
-    # Visualizzazione del numero di presentati con la variazione percentuale nella terza colonna
+        st.metric(label="Appuntamenti Fissati", value=len(appuntamenti_fissati), delta=f"{variazione_appuntamenti_fissati:.2f}%")
     with col3:
-        st.subheader('')
         st.metric(label="Totale Presentati", value=num_presentati, delta=f"{variazione_presentati:.2f}%")
-    
-
-    # Visualizzazione del valore dell'importo totale pagato con la variazione percentuale nella quarta colonna
     with col4:
-        st.subheader('')
         st.metric(label="Importo Totale Pagato", value=f"€ {importo_totale_pagato:.2f}", delta=f"{variazione_importo_pagato:.2f}%")
 
-
-    # Nuovo grafico: Leads, Appuntamenti Fissati, Presentati e Importo Pagato per Istituto
-
+    
     if not df_metrics.empty:
         if grafico_tipo == "Barre":
             fig_leads = px.bar(df_metrics, x='Istituto di origine', 
@@ -238,7 +217,7 @@ def dashboard():
                                 labels={'value': 'Numero', 'Istituto di origine': 'Istituto di Origine'},
                                 title="Leads, Appuntamenti Fissati, Presentati per Istituto")
         elif grafico_tipo == "Torta":
-            st.write("Non è possibile visualizzare più variabili su un grafico a torta.")  # Avviso per l'utente
+            st.write("Non è possibile visualizzare il grafico in formato Torta dato il numero di variabili")  # Avviso per l'utente
             fig_leads = None
 
         if fig_leads:
