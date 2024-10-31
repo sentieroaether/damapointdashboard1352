@@ -3,6 +3,8 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 from collections import Counter
+from datetime import datetime
+
 
 # Credenziali di accesso
 USERNAME = "admindama"
@@ -87,6 +89,12 @@ def dashboard():
         "Authorization": f"Bearer {AIRTABLE_API_KEY}"
     }
 
+    st.sidebar.subheader("Seleziona intervallo di tempo")
+    data_inizio = st.sidebar.date_input("Data Inizio", value=datetime.now().date())
+    data_fine = st.sidebar.date_input("Data Fine", value=datetime.now().date())
+    data_inizio = pd.to_datetime(data_inizio)
+    data_fine = pd.to_datetime(data_fine)
+
     # Funzione per ottenere tutti i dati da Airtable (gestione della paginazione)
     def get_all_airtable_data():
         all_records = []
@@ -98,7 +106,6 @@ def dashboard():
                 data = response.json()
                 all_records.extend(data['records'])
                 
-                # Se esiste un 'offset', continuiamo a paginare
                 if 'offset' in data:
                     params['offset'] = data['offset']
                 else:
@@ -109,46 +116,41 @@ def dashboard():
 
         return all_records
 
-    # Otteniamo tutti i dati
+    # Otteniamo e filtriamo i dati
     records = get_all_airtable_data()
-
     if records:
-        # Fase 2: Elaborazione dei dati
         fields = [record['fields'] for record in records]
         
-        # Numero totale di leads
-        num_leads = len(fields)
+        # Filtra in base all'intervallo di tempo selezionato
+        fields_filtrati = [
+            record for record in fields 
+            if 'Created' in record and data_inizio <= pd.to_datetime(record['Created']).tz_convert(None) <= data_fine
+        ]
 
-        # Filtriamo i record con appuntamenti fissati e presentati
-        appuntamenti_fissati = [record for record in fields if record.get('Esito telefonata') == 'App. Fissato']
-        presentati = [record for record in fields if record.get('Presentato/a?')]
+        # Calcolo delle metriche aggiornate e dei grafici, basato su `fields_filtrati`
+        num_leads = len(fields_filtrati)
+        appuntamenti_fissati = [record for record in fields_filtrati if record.get('Esito telefonata') == 'App. Fissato']
+        presentati = [record for record in fields_filtrati if record.get('Presentato/a?')]
 
         # Numero totale di presentati
         num_presentati = len(presentati)
+        importo_totale_pagato = sum(float(record.get('Importo saldo', 0)) for record in fields_filtrati if 'Importo saldo' in record)
 
-        # Somma totale dell'importo pagato
-        importo_totale_pagato = sum(float(record.get('Importo saldo', 0)) for record in fields if 'Importo saldo' in record)
-
-        # Estrai gli istituti di origine e puliamo i nomi
-        istituti = [pulisci_nome_istituto(record['Istituto di origine']) for record in fields if 'Istituto di origine' in record]
-
-        # Conteggi per istituto
+        # Estrai e normalizza gli istituti
+        istituti = [pulisci_nome_istituto(record['Istituto di origine']) for record in fields_filtrati if 'Istituto di origine' in record]
         leads_per_istituto = Counter(istituti)
         appuntamenti_per_istituto = Counter([pulisci_nome_istituto(record['Istituto di origine']) for record in appuntamenti_fissati if 'Istituto di origine' in record])
         presentati_per_istituto = Counter([pulisci_nome_istituto(record['Istituto di origine']) for record in presentati if 'Istituto di origine' in record])
 
-        # Sommiamo l'importo pagato per istituto
+        # Somma importo pagato per istituto
         importo_pagato_per_istituto = {}
-        for record in fields:
+        for record in fields_filtrati:
             istituto = pulisci_nome_istituto(record.get('Istituto di origine', ''))
-            importo_pagato = float(record.get('Importo saldo', 0) or 0)  # Gestiamo eventuali valori mancanti con 0
+            importo_pagato = float(record.get('Importo saldo', 0) or 0)
             if istituto:
-                if istituto in importo_pagato_per_istituto:
-                    importo_pagato_per_istituto[istituto] += importo_pagato
-                else:
-                    importo_pagato_per_istituto[istituto] = importo_pagato
+                importo_pagato_per_istituto[istituto] = importo_pagato_per_istituto.get(istituto, 0) + importo_pagato
 
-        # Creiamo un DataFrame per visualizzare i dati aggregati
+        # Creiamo il DataFrame per la visualizzazione
         df_metrics = pd.DataFrame({
             'Istituto di origine': list(leads_per_istituto.keys()),
             'Leads Generati': list(leads_per_istituto.values()),
@@ -156,7 +158,6 @@ def dashboard():
             'Presentati': [presentati_per_istituto.get(istituto, 0) for istituto in leads_per_istituto.keys()],
             'Importo Pagato': [importo_pagato_per_istituto.get(istituto, 0) for istituto in leads_per_istituto.keys()]
         })
-
     else:
         st.warning("Nessun dato disponibile per la dashboard")
         num_leads = 0
